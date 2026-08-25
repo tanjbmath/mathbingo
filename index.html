@@ -375,9 +375,11 @@
       <div id="modalIcon" class="text-4xl mb-2">🚀</div>
       <h3 id="modalTitle" class="text-lg font-black font-orbitron text-cyan-300 mb-2 tracking-wide">NOTIFICATION</h3>
       <p id="modalBody" class="text-xs sm:text-sm text-slate-300 mb-5 leading-relaxed">Message content goes here.</p>
-      <button onclick="closeModal()" class="w-full py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-orbitron font-bold text-xs rounded-xl shadow-lg hover:opacity-90 active:scale-95">
-        CONTINUE ⚡
-      </button>
+      <div id="modalButtons" class="w-full flex flex-col gap-2">
+        <button onclick="closeModal()" class="w-full py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-orbitron font-bold text-xs rounded-xl shadow-lg hover:opacity-90 active:scale-95">
+          CONTINUE ⚡
+        </button>
+      </div>
     </div>
   </div>
 
@@ -490,6 +492,7 @@
     let choiceTiles = [];
     let selectedChoiceIndices = [];
     let currentOp = '+';
+    let isGameOver = false;
 
     /* ====================================================================
        BACKGROUND CANVAS STARFIELD & NEBULA ANIMATION
@@ -841,6 +844,7 @@
        MAIN GAMEPLAY & TURN CONTROL
        ==================================================================== */
     function startActualGameplay() {
+      isGameOver = false;
       activePlayer = 'p1';
       updateStatus('Target Hack Duel Active!', 'bg-green-400');
 
@@ -869,6 +873,14 @@
       const dot = document.getElementById('turnDot');
       const submitBtn = document.getElementById('submitEqBtn');
       const gridTitle = document.getElementById('gridOwnerTitle');
+
+      if (isGameOver) {
+        submitBtn.disabled = true;
+        submitBtn.className = "w-full py-3 bg-slate-800 text-slate-500 font-orbitron font-black text-xs sm:text-sm rounded-xl border border-slate-700 cursor-not-allowed opacity-60";
+        text.innerText = "DUEL FINISHED";
+        dot.className = "w-3 h-3 rounded-full bg-red-500";
+        return;
+      }
 
       const isMyTurn = (gameMode === 'pass') || (gameMode === 'ai' && activePlayer === 'p1') || (gameMode === 'p2p' && activePlayer === myRole);
 
@@ -1104,10 +1116,19 @@
       const p2Won = checkWin(oppClaimed);
 
       if (p1Won || p2Won) {
+        isGameOver = true;
         playSound('win');
-        let winMsg = p1Won && p2Won ? "DOUBLE WARP VICTORY! Both matrices completed!" : (p1Won ? "PLAYER 1 WINS THE DUEL!" : "PLAYER 2 / CYBER AI WINS THE DUEL!");
-        showModal('🎉 DUEL VICTORY!', winMsg, '🏆');
-        if (conn && conn.open) conn.send({ type: 'GAME_OVER', winnerMsg: winMsg });
+        let winMsg = "";
+        if (gameMode === 'p2p') {
+          const myWin = (myRole === 'p1' && p1Won) || (myRole === 'p2' && p2Won);
+          winMsg = myWin ? "VICTORY! You completed your target matrix!" : "DEFEAT! Opponent completed their matrix first!";
+        } else {
+          winMsg = p1Won && p2Won ? "DOUBLE WARP VICTORY! Both matrices completed!" : (p1Won ? "PLAYER 1 WINS THE DUEL!" : "PLAYER 2 / CYBER AI WINS THE DUEL!");
+        }
+        showGameOverModal('🎉 DUEL VICTORY!', winMsg, '🏆');
+        if (conn && conn.open) conn.send({ type: 'GAME_OVER', winnerMsg: winMsg, winnerRole: p1Won ? 'p1' : 'p2' });
+        updateStatus('DUEL COMPLETE', 'bg-red-500');
+        updateTurnDisplay();
         return;
       }
 
@@ -1189,12 +1210,29 @@
           data.p2Hits.forEach(idx => oppClaimed[idx] = true);
         }
         renderAllGrids();
+
+        const p1Won = checkWin(myRole === 'p2' ? oppClaimed : myClaimed);
+        const p2Won = checkWin(myRole === 'p2' ? myClaimed : oppClaimed);
+        if (p1Won || p2Won) {
+          isGameOver = true;
+          playSound('win');
+          const myWin = (myRole === 'p1' && p1Won) || (myRole === 'p2' && p2Won);
+          const winMsg = myWin ? "VICTORY! You completed your matrix!" : "DEFEAT! Opponent completed their matrix!";
+          showGameOverModal('GAME OVER', winMsg, '🌌');
+          updateStatus('DUEL COMPLETE', 'bg-red-500');
+          updateTurnDisplay();
+          return;
+        }
+
         showModal('OPPONENT HACKED', `Opponent formed equation: ${data.v1} ${data.op} ${data.v2} = ${data.result}`, '🚀');
         activePlayer = myRole;
         updateTurnDisplay();
       } else if (data.type === 'GAME_OVER') {
+        isGameOver = true;
         playSound('win');
-        showModal('GAME OVER', data.winnerMsg || 'Duel Complete!', '🌌');
+        showGameOverModal('GAME OVER', data.winnerMsg || 'Duel Complete!', '🌌');
+        updateStatus('DUEL COMPLETE', 'bg-red-500');
+        updateTurnDisplay();
       }
     }
 
@@ -1203,7 +1241,43 @@
       document.getElementById('modalTitle').innerText = title;
       document.getElementById('modalBody').innerText = text;
       document.getElementById('modalIcon').innerText = icon;
+      const btnArea = document.getElementById('modalButtons');
+      btnArea.innerHTML = `
+        <button onclick="closeModal()" class="w-full py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-orbitron font-bold text-xs rounded-xl shadow-lg hover:opacity-90 active:scale-95">
+          CONTINUE ⚡
+        </button>
+      `;
       document.getElementById('gameModal').classList.remove('hidden');
+    }
+
+    function showGameOverModal(title, text, icon = '🏆') {
+      document.getElementById('modalTitle').innerText = title;
+      document.getElementById('modalBody').innerText = text;
+      document.getElementById('modalIcon').innerText = icon;
+      const btnArea = document.getElementById('modalButtons');
+      btnArea.innerHTML = `
+        <button onclick="returnToLobby()" class="w-full py-2.5 bg-gradient-to-r from-cyan-500 via-purple-600 to-pink-500 text-white font-orbitron font-bold text-xs rounded-xl shadow-lg hover:opacity-90 active:scale-95 glow-cyan">
+          RETURN TO MISSION CONTROL LOBBY 🚀
+        </button>
+      `;
+      document.getElementById('gameModal').classList.remove('hidden');
+    }
+
+    function returnToLobby() {
+      isGameOver = false;
+      myGridLocked = false;
+      opponentGridLocked = false;
+      passPlaySetupStep = 1;
+      myGrid = Array(9).fill(null);
+      oppGrid = Array(9).fill(null);
+      myClaimed = Array(9).fill(false);
+      oppClaimed = Array(9).fill(false);
+      selectedChoiceIndices = [];
+      closeModal();
+      document.getElementById('gameArea').classList.add('hidden');
+      document.getElementById('customizationArea').classList.add('hidden');
+      document.getElementById('lobbyArea').classList.remove('hidden');
+      updateStatus('System Online • Select Mode', 'bg-cyan-400');
     }
 
     function closeModal() {
