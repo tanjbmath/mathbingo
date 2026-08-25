@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Galaxy Grid Racers: Target Hack Duel</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- PeerJS CDN for P2P local connection -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <!-- Google Fonts: Orbitron & Inter -->
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800;900&family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-dark: #050711;
+      --card-bg: rgba(13, 18, 36, 0.85);
+      --neon-cyan: #00f0ff;
+      --neon-purple: #9d4edd;
+      --neon-pink: #ff007f;
+      --neon-green: #00ff87;
+      --neon-yellow: #ffea00;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: #ffffff;
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+      user-select: none;
+    }
+
+    .font-orbitron {
+      font-family: 'Orbitron', sans-serif;
+    }
+
+    /* Sci-Fi Glow Utility Classes */
+    .glow-cyan {
+      box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+    }
+    .glow-pink {
+      box-shadow: 0 0 20px rgba(255, 0, 127, 0.5);
+    }
+    .glow-purple {
+      box-shadow: 0 0 20px rgba(157, 78, 221, 0.4);
+    }
+    .glow-green {
+      box-shadow: 0 0 20px rgba(0, 255, 135, 0.4);
+    }
+
+    .text-glow-cyan {
+      text-shadow: 0 0 10px rgba(0, 240, 255, 0.8);
+    }
+    .text-glow-pink {
+      text-shadow: 0 0 10px rgba(255, 0, 127, 0.8);
+    }
+    .text-glow-green {
+      text-shadow: 0 0 10px rgba(0, 255, 135, 0.8);
+    }
+
+    /* Grid Cell Dynamics */
+    .grid-cell {
+      transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .grid-cell:hover:not(.claimed) {
+      transform: translateY(-3px) scale(1.03);
+      border-color: var(--neon-cyan);
+    }
+    .grid-cell.claimed-p1 {
+      background: linear-gradient(135deg, rgba(157, 78, 221, 0.95), rgba(255, 0, 127, 0.95)) !important;
+      border-color: var(--neon-pink) !important;
+      box-shadow: 0 0 18px var(--neon-pink);
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .grid-cell.claimed-p2 {
+      background: linear-gradient(135deg, rgba(0, 240, 255, 0.95), rgba(0, 255, 135, 0.95)) !important;
+      border-color: var(--neon-green) !important;
+      box-shadow: 0 0 18px var(--neon-green);
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .grid-cell.winning-cell {
+      animation: pulseGlow 1s infinite alternate !important;
+      border-color: #ffffff !important;
+    }
+
+    @keyframes popIn {
+      0% { transform: scale(0.5); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes pulseGlow {
+      0% { box-shadow: 0 0 10px #fff, 0 0 20px var(--neon-yellow); transform: scale(1); }
+      100% { box-shadow: 0 0 25px #fff, 0 0 40px var(--neon-yellow); transform: scale(1.08); }
+    }
+
+    /* Choice Tile Dynamics */
+    .choice-tile {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .choice-tile.selected {
+      border-color: var(--neon-yellow) !important;
+      background: rgba(255, 234, 0, 0.25) !important;
+      box-shadow: 0 0 18px var(--neon-yellow);
+      transform: translateY(-4px) scale(1.1);
+    }
+
+    /* Screen Shake Animation */
+    .shake-anim {
+      animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+    }
+    @keyframes shake {
+      10%, 90% { transform: translate3d(-1px, 0, 0); }
+      20%, 80% { transform: translate3d(2px, 0, 0); }
+      30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+      40%, 60% { transform: translate3d(4px, 0, 0); }
+    }
+
+    /* Glassmorphic Panel Base */
+    .cyber-panel {
+      background: rgba(13, 19, 39, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(0, 240, 255, 0.25);
+    }
+
+    /* Custom Canvas Background Overlay */
+    #bgCanvas {
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      pointer-events: none;
+      z-index: 0;
+    }
+  </style>
+</head>
+
+<body class="flex flex-col items-center justify-between p-3 sm:p-5 relative min-h-screen">
+  <canvas id="bgCanvas"></canvas>
+
+  <main class="w-full max-w-lg flex flex-col items-center z-10 relative">
+
+    <!-- HEADER SECTION -->
+    <header class="text-center my-2 w-full">
+      <div class="flex items-center justify-center gap-2 mb-1">
+        <span class="text-3xl animate-bounce">⚡</span>
+        <h1 class="text-2xl sm:text-3xl font-black font-orbitron tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-500">
+          GALAXY GRID RACERS
+        </h1>
+        <span class="text-3xl animate-bounce">🚀</span>
+      </div>
+      <p class="text-[11px] sm:text-xs text-cyan-300 font-bold tracking-widest uppercase font-orbitron">
+        Target Hack Duel • Math Strategy Battle
+      </p>
+
+      <!-- STATUS & AUDIO BAR -->
+      <div id="statusBar" class="mt-3 py-1.5 px-4 rounded-full cyber-panel text-xs flex items-center justify-between shadow-lg border border-purple-500/40">
+        <div class="flex items-center gap-2">
+          <span id="statusDot" class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+          <span id="statusText" class="text-slate-200 font-medium font-orbitron">System Online • Select Mode</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="soundToggleBtn" onclick="toggleAudio()" class="text-slate-300 hover:text-cyan-400 text-sm px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700">
+            🔊 Sound
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- SECTION 1: LOBBY & GAME SETUP MODE -->
+    <section id="lobbyArea" class="w-full cyber-panel rounded-2xl p-5 my-2 glow-cyan transition-all">
+      <h2 class="text-base sm:text-lg font-bold font-orbitron text-cyan-300 mb-4 text-center tracking-wide flex items-center justify-center gap-2">
+        <span>🎮</span> MISSION CONTROL LOBBY
+      </h2>
+
+      <!-- 1. MODE SELECTION -->
+      <div class="mb-4">
+        <label class="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 font-orbitron">1. Select Game Mode</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button id="modeAiBtn" onclick="setMode('ai')" class="py-2.5 px-2 rounded-xl border-2 border-cyan-400 bg-cyan-950/60 text-cyan-300 font-orbitron text-xs font-bold text-center flex flex-col items-center gap-1 shadow-md">
+            <span class="text-base">🤖</span> vs CYBER AI
+          </button>
+          <button id="modePassBtn" onclick="setMode('pass')" class="py-2.5 px-2 rounded-xl border border-slate-700 bg-slate-800/60 text-slate-400 font-orbitron text-xs font-bold text-center flex flex-col items-center gap-1 hover:border-purple-400">
+            <span class="text-base">📱</span> PASS & PLAY
+          </button>
+          <button id="modeP2pBtn" onclick="setMode('p2p')" class="py-2.5 px-2 rounded-xl border border-slate-700 bg-slate-800/60 text-slate-400 font-orbitron text-xs font-bold text-center flex flex-col items-center gap-1 hover:border-pink-400">
+            <span class="text-base">🌐</span> ONLINE LINK
+          </button>
+        </div>
+      </div>
+
+      <!-- 2. AI DIFFICULTY (Only shown if vs AI) -->
+      <div id="aiDifficultyGroup" class="mb-4">
+        <label class="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 font-orbitron">2. AI Bot Skill Level</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button onclick="setAiDiff('easy')" id="diffEasy" class="py-1.5 px-2 rounded-lg border border-slate-700 bg-slate-800 text-xs font-orbitron text-slate-400 font-bold hover:border-cyan-400">
+            Cadet (Easy)
+          </button>
+          <button onclick="setAiDiff('medium')" id="diffMed" class="py-1.5 px-2 rounded-lg border-2 border-cyan-400 bg-cyan-950 text-xs font-orbitron text-cyan-300 font-bold">
+            Cyber (Med)
+          </button>
+          <button onclick="setAiDiff('hard')" id="diffHard" class="py-1.5 px-2 rounded-lg border border-slate-700 bg-slate-800 text-xs font-orbitron text-slate-400 font-bold hover:border-pink-400">
+            Overlord (Hard)
+          </button>
+        </div>
+      </div>
+
+      <!-- 3. NUMBER RANGE SELECTION -->
+      <div class="mb-4">
+        <label class="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 font-orbitron">3. Matrix Number Range</label>
+        <div class="grid grid-cols-2 gap-2">
+          <button id="rangeSet1" onclick="selectRange('1-9')" class="py-2 px-3 rounded-xl border-2 border-cyan-400 bg-cyan-950/60 text-cyan-300 font-orbitron text-xs font-bold shadow-md">
+            Digits 1 – 9
+          </button>
+          <button id="rangeSet2" onclick="selectRange('11-19')" class="py-2 px-3 rounded-xl border border-slate-700 bg-slate-800/50 text-slate-400 font-orbitron text-xs font-bold shadow-md hover:border-purple-400">
+            Numbers 11 – 19
+          </button>
+        </div>
+      </div>
+
+      <!-- 4. P2P CONTROLS (Only shown if online) -->
+      <div id="p2pControlGroup" class="hidden mb-4 p-3 bg-slate-950/80 rounded-xl border border-purple-500/30">
+        <label class="block text-xs font-bold text-purple-300 uppercase tracking-wider mb-2 font-orbitron">Quantum Peer Link</label>
+        <div class="flex flex-col gap-2">
+          <button onclick="createRoom()" class="w-full py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-orbitron text-xs font-bold rounded-lg shadow-lg active:scale-95 transition-all">
+            CREATE HOST ROOM
+          </button>
+          <div id="hostCodeDisplay" class="hidden p-2 bg-slate-900 rounded-lg text-center border border-cyan-500/50">
+            <span class="text-[10px] text-slate-400 block font-orbitron">YOUR ROOM ID:</span>
+            <div class="flex items-center justify-center gap-2 mt-1">
+              <span id="myPeerId" class="font-orbitron font-bold text-cyan-300 text-xs tracking-wider">GENERATING...</span>
+              <button onclick="copyPeerId()" class="text-[10px] bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded font-orbitron">
+                📋 COPY
+              </button>
+            </div>
+          </div>
+          <div class="flex gap-2 mt-1">
+            <input type="text" id="joinIdInput" placeholder="Enter Host Room ID..." class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-cyan-300 font-orbitron placeholder-slate-500 focus:outline-none focus:border-cyan-400">
+            <button onclick="joinRoom()" class="py-1.5 px-3 bg-cyan-600 hover:bg-cyan-500 text-white font-orbitron text-xs font-bold rounded-lg shadow active:scale-95 transition-all">
+              JOIN
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- START MISSION BUTTON -->
+      <button id="startLobbyBtn" onclick="launchCustomizationPhase()" class="w-full mt-2 py-3 bg-gradient-to-r from-cyan-500 via-purple-600 to-pink-500 hover:opacity-95 text-white font-orbitron font-black text-sm rounded-xl shadow-lg glow-pink transform active:scale-95 transition-all">
+        START MATRIX SETUP 🚀
+      </button>
+    </section>
+
+    <!-- SECTION 2: GRID CUSTOMIZATION PHASE -->
+    <section id="customizationArea" class="hidden w-full cyber-panel rounded-2xl p-4 sm:p-5 my-2 glow-purple">
+      <div class="text-center mb-3">
+        <h2 id="customTitle" class="text-base font-bold font-orbitron text-purple-300 tracking-wide">
+          CONFIG MATRIX BOARD (PLAYER 1)
+        </h2>
+        <p class="text-xs text-slate-300 mt-1">Tap a number below, then tap a grid slot to place it!</p>
+      </div>
+
+      <!-- 3x3 Setup Grid -->
+      <div id="setupGrid" class="grid grid-cols-3 gap-2.5 w-full aspect-square max-w-[260px] mx-auto my-3">
+        <!-- 9 slots dynamic -->
+      </div>
+
+      <!-- Palette Pool -->
+      <div class="mt-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-bold text-slate-400 font-orbitron">AVAILABLE NUMBERS:</span>
+          <button onclick="autoFillGrid()" class="text-[10px] bg-purple-900/60 text-purple-300 hover:bg-purple-800 border border-purple-500/40 px-2 py-0.5 rounded font-orbitron font-semibold">
+            🎲 AUTO FILL
+          </button>
+        </div>
+        <div id="paletteContainer" class="flex flex-wrap justify-center gap-1.5 p-2 bg-slate-950/80 rounded-xl border border-slate-800 min-h-[48px]">
+          <!-- Palette tiles injected -->
+        </div>
+      </div>
+
+      <button id="lockGridBtn" disabled onclick="lockInGrid()" class="w-full mt-4 py-3 bg-slate-800 text-slate-500 font-orbitron font-bold text-xs sm:text-sm rounded-xl border border-slate-700 cursor-not-allowed transition-all">
+        FILL ALL 9 SLOTS TO LOCK MATRIX 🚀
+      </button>
+    </section>
+
+    <!-- SECTION 3: MAIN GAMEPLAY HUD -->
+    <section id="gameArea" class="hidden w-full flex flex-col items-center gap-3">
+      
+      <!-- TURN & HUD HEADER -->
+      <div id="turnHUD" class="w-full cyber-panel rounded-2xl p-3 text-center glow-cyan flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span id="turnDot" class="w-3 h-3 rounded-full bg-cyan-400 animate-ping"></span>
+          <span id="turnText" class="text-xs sm:text-sm font-black font-orbitron text-cyan-300 tracking-wider">
+            YOUR TURN (PLAYER 1)
+          </span>
+        </div>
+        <div class="text-[10px] font-orbitron bg-slate-950/90 border border-slate-800 px-2.5 py-1 rounded-full text-yellow-400 font-bold">
+          DUAL LIGHTING ⚡
+        </div>
+      </div>
+
+      <!-- CHOICE PIECES BANK -->
+      <div class="w-full cyber-panel rounded-2xl p-3">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold font-orbitron text-purple-300">EQUATION CHOICE PIECES</span>
+          <span class="text-[10px] text-slate-400 font-orbitron">SELECT ANY 2 PIECES</span>
+        </div>
+        <div id="choiceTilesBank" class="flex justify-center gap-2">
+          <!-- 5 tiles injected dynamically -->
+        </div>
+      </div>
+
+      <!-- ACTIVE GRIDS DISPLAY (PLAYER MATRIX & OPPONENT TRACKER) -->
+      <div class="w-full grid grid-cols-1 sm:grid-cols-4 gap-3">
+        
+        <!-- Main Target Grid (3 cols) -->
+        <div class="sm:col-span-3 cyber-panel rounded-2xl p-3">
+          <div class="text-xs font-bold font-orbitron text-cyan-300 mb-2 flex justify-between items-center">
+            <span id="gridOwnerTitle">YOUR TARGET MATRIX</span>
+            <span id="myClaimCount" class="text-[10px] bg-cyan-950 text-cyan-300 px-2 py-0.5 rounded border border-cyan-500/40 font-orbitron">0 / 9 HIT</span>
+          </div>
+          <div id="gameGrid" class="grid grid-cols-3 gap-2.5 aspect-square w-full max-w-[260px] mx-auto">
+            <!-- Active 9 game cells -->
+          </div>
+        </div>
+
+        <!-- Opponent Tracker Mini Grid (1 col) -->
+        <div class="sm:col-span-1 cyber-panel rounded-2xl p-2.5 flex flex-col items-center justify-center">
+          <span class="text-[10px] font-bold font-orbitron text-slate-400 mb-1 text-center">OPPONENT MATRIX</span>
+          <div id="oppMiniGrid" class="grid grid-cols-3 gap-1.5 w-full aspect-square max-w-[120px]">
+            <!-- Opponent Mini Cells -->
+          </div>
+          <span id="oppClaimCount" class="text-[9px] text-slate-500 font-orbitron mt-1.5">0 / 9 HIT</span>
+        </div>
+      </div>
+
+      <!-- EQUATION CONSTRUCTION CONTROLS -->
+      <div class="w-full cyber-panel rounded-2xl p-3.5 flex flex-col items-center gap-2.5">
+        <div class="text-xs font-bold text-slate-300 font-orbitron tracking-wider">CONSTRUCT HACK EQUATION:</div>
+        
+        <!-- Equation Preview Box -->
+        <div class="flex items-center justify-center gap-2 text-lg font-orbitron font-bold text-cyan-300 bg-slate-950/90 py-2 px-4 rounded-xl border border-slate-800 w-full text-center shadow-inner">
+          <span id="eqVal1" class="text-yellow-400 border-b-2 border-yellow-400 px-2 min-w-[32px]">?</span>
+          <span id="eqOp" class="text-cyan-300 font-black">+</span>
+          <span id="eqVal2" class="text-yellow-400 border-b-2 border-yellow-400 px-2 min-w-[32px]">?</span>
+          <span class="text-slate-500">=</span>
+          <span id="eqResult" class="text-pink-400 font-black text-xl">?</span>
+        </div>
+
+        <!-- Math Operator Selectors -->
+        <div class="flex gap-2.5 my-0.5">
+          <button onclick="setOperator('+')" id="opAdd" class="w-10 h-10 bg-purple-900/80 border-2 border-pink-400 text-pink-200 rounded-xl font-orbitron font-black text-lg flex items-center justify-center shadow active:scale-95 transition-all glow-pink">
+            +
+          </button>
+          <button onclick="setOperator('-')" id="opSub" class="w-10 h-10 bg-purple-900/30 text-purple-300 border border-slate-700 rounded-xl font-orbitron font-black text-lg flex items-center justify-center shadow hover:border-purple-400 active:scale-95 transition-all">
+            -
+          </button>
+          <button onclick="setOperator('×')" id="opMul" class="w-10 h-10 bg-purple-900/30 text-purple-300 border border-slate-700 rounded-xl font-orbitron font-black text-lg flex items-center justify-center shadow hover:border-purple-400 active:scale-95 transition-all">
+            ×
+          </button>
+          <button onclick="setOperator('÷')" id="opDiv" class="w-10 h-10 bg-purple-900/30 text-purple-300 border border-slate-700 rounded-xl font-orbitron font-black text-lg flex items-center justify-center shadow hover:border-purple-400 active:scale-95 transition-all">
+            ÷
+          </button>
+        </div>
+
+        <!-- Submit Button -->
+        <button id="submitEqBtn" onclick="submitEquation()" class="w-full py-3 bg-gradient-to-r from-cyan-500 via-purple-600 to-pink-500 hover:from-cyan-400 hover:to-pink-400 text-white font-orbitron font-black text-xs sm:text-sm rounded-xl shadow-lg transform active:scale-95 transition-all glow-cyan cursor-pointer">
+          EXECUTE TARGET HACK ⚡
+        </button>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- CUSTOM MODAL DIALOG -->
+  <div id="gameModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border-2 border-cyan-400 rounded-2xl p-6 max-w-xs w-full text-center shadow-2xl glow-cyan shake-anim">
+      <div id="modalIcon" class="text-4xl mb-2">🚀</div>
+      <h3 id="modalTitle" class="text-lg font-black font-orbitron text-cyan-300 mb-2 tracking-wide">NOTIFICATION</h3>
+      <p id="modalBody" class="text-xs sm:text-sm text-slate-300 mb-5 leading-relaxed">Message content goes here.</p>
+      <button onclick="closeModal()" class="w-full py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-orbitron font-bold text-xs rounded-xl shadow-lg hover:opacity-90 active:scale-95">
+        CONTINUE ⚡
+      </button>
+    </div>
+  </div>
+
+  <script>
+    /* ====================================================================
+       WEB AUDIO SYNTHESIZER (ZERO EXTERNAL SOUND ASSETS REQUIRED)
+       ==================================================================== */
+    let audioCtx = null;
+    let audioMuted = false;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+    }
+
+    function toggleAudio() {
+      audioMuted = !audioMuted;
+      document.getElementById('soundToggleBtn').innerText = audioMuted ? '🔇 Off' : '🔊 Sound';
+    }
+
+    function playSound(type) {
+      if (audioMuted) return;
+      initAudio();
+      if (!audioCtx) return;
+
+      const now = audioCtx.currentTime;
+
+      if (type === 'select') {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.linearRampToValueAtTime(0, now + 0.08);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.08);
+      } else if (type === 'success') {
+        [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now + idx * 0.05);
+          gain.gain.setValueAtTime(0.15, now + idx * 0.05);
+          gain.gain.linearRampToValueAtTime(0, now + idx * 0.05 + 0.12);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + idx * 0.05);
+          osc.stop(now + idx * 0.05 + 0.12);
+        });
+      } else if (type === 'error') {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.setValueAtTime(120, now + 0.1);
+        gain.gain.setValueAtTime(0.18, now);
+        gain.gain.linearRampToValueAtTime(0, now + 0.22);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.22);
+      } else if (type === 'win') {
+        [440, 554.37, 659.25, 880, 1108.73].forEach((freq, idx) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now + idx * 0.09);
+          gain.gain.setValueAtTime(0.2, now + idx * 0.09);
+          gain.gain.linearRampToValueAtTime(0, now + idx * 0.09 + 0.25);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + idx * 0.09);
+          osc.stop(now + idx * 0.09 + 0.25);
+        });
+      }
+    }
+
+    /* ====================================================================
+       STATE MANAGEMENT & CONFIGURATION
+       ==================================================================== */
+    let gameMode = 'ai'; // 'ai', 'pass', 'p2p'
+    let aiDifficulty = 'medium'; // 'easy', 'medium', 'hard'
+    let myNumberRange = '1-9'; // '1-9' or '11-19'
+    
+    // PeerJS variables
+    let peer = null;
+    let conn = null;
+    let myRole = 'p1'; // 'p1' or 'p2'
+
+    // Pass & Play / Setup Flow
+    let passPlaySetupStep = 1; // 1 = P1 setup, 2 = P2 setup
+
+    // Matrix States
+    let setupPalette = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    let selectedPaletteNum = null;
+    let myGrid = Array(9).fill(null);
+    let myClaimed = Array(9).fill(false);
+    let oppGrid = Array(9).fill(null);
+    let oppClaimed = Array(9).fill(false);
+
+    let opponentGridLocked = false;
+    let myGridLocked = false;
+
+    // Active Gameplay Turn & Equation state
+    let activePlayer = 'p1'; // 'p1' or 'p2'
+    let choiceTiles = [];
+    let selectedChoiceIndices = [];
+    let currentOp = '+';
+
+    /* ====================================================================
+       BACKGROUND CANVAS STARFIELD & NEBULA ANIMATION
+       ==================================================================== */
+    const canvas = document.getElementById('bgCanvas');
+    const ctx = canvas.getContext('2d');
+    let stars = [];
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      initStars();
+    }
+
+    function initStars() {
+      stars = [];
+      const count = Math.floor((canvas.width * canvas.height) / 4000);
+      for (let i = 0; i < count; i++) {
+        stars.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          size: Math.random() * 1.5 + 0.5,
+          color: ['#00f0ff', '#ff007f', '#9d4edd', '#ffffff'][Math.floor(Math.random() * 4)],
+          speed: Math.random() * 0.3 + 0.1,
+          opacity: Math.random()
+        });
+      }
+    }
+
+    function animateStars() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      stars.forEach(star => {
+        star.y += star.speed;
+        if (star.y > canvas.height) star.y = 0;
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+        ctx.fillStyle = star.color;
+        ctx.globalAlpha = star.opacity * 0.8;
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1.0;
+      requestAnimationFrame(animateStars);
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('DOMContentLoaded', () => {
+      resizeCanvas();
+      animateStars();
+      selectRange('1-9');
+    });
+
+    /* ====================================================================
+       MODE SELECTOR & LOBBY CONTROLS
+       ==================================================================== */
+    function updateStatus(text, colorClass = 'bg-cyan-400') {
+      document.getElementById('statusText').innerText = text;
+      const dot = document.getElementById('statusDot');
+      dot.className = `w-2.5 h-2.5 rounded-full ${colorClass} animate-pulse`;
+    }
+
+    function setMode(mode) {
+      playSound('select');
+      gameMode = mode;
+
+      const aiBtn = document.getElementById('modeAiBtn');
+      const passBtn = document.getElementById('modePassBtn');
+      const p2pBtn = document.getElementById('modeP2pBtn');
+      const aiGroup = document.getElementById('aiDifficultyGroup');
+      const p2pGroup = document.getElementById('p2pControlGroup');
+
+      [aiBtn, passBtn, p2pBtn].forEach(b => {
+        b.className = "py-2.5 px-2 rounded-xl border border-slate-700 bg-slate-800/60 text-slate-400 font-orbitron text-xs font-bold text-center flex flex-col items-center gap-1 hover:border-purple-400";
+      });
+
+      if (mode === 'ai') {
+        aiBtn.className = "py-2.5 px-2 rounded-xl border-2 border-cyan-400 bg-cyan-950/60 text-cyan-300 font-orbitron text-xs font-bold text-center flex flex-col items-center gap-1 shadow-md glow-cyan";
+        aiGroup.classList.remove('hidden');
+        p2pGroup.classList.add('hidden');
+        updateStatus('Mode: vs Cyber AI Bot', 'bg-cyan-400');
+      } else if (mode === 'pass') {
+        passBtn.className = "py-2.5 px-2 rounded-xl border-2 border-purple-400 bg-purple-950/60 text-purple-300 font-orbitron text-xs font-bold text-center flex flex-col items-center gap-1 shadow-md glow-purple";
+        aiGroup.classList.add('hidden');
+        p2pGroup.classList.add('hidden');
+        updateStatus('Mode: 2-Player Pass & Play', 'bg-purple-400');
+      } else if (mode === 'p2p') {
+        p2pBtn.className = "py-2.5 px-2 rounded-xl border-2 border-pink-400 bg-pink-950/60 text-pink-300 font-orbitron text-xs font-bold text-center flex flex-col items-center gap-1 shadow-md glow-pink";
+        aiGroup.classList.add('hidden');
+        p2pGroup.classList.remove('hidden');
+        initPeerJS();
+      }
+    }
+
+    function setAiDiff(diff) {
+      playSound('select');
+      aiDifficulty = diff;
+      ['diffEasy', 'diffMed', 'diffHard'].forEach(id => {
+        document.getElementById(id).className = "py-1.5 px-2 rounded-lg border border-slate-700 bg-slate-800 text-xs font-orbitron text-slate-400 font-bold hover:border-cyan-400";
+      });
+
+      if (diff === 'easy') document.getElementById('diffEasy').className = "py-1.5 px-2 rounded-lg border-2 border-cyan-400 bg-cyan-950 text-xs font-orbitron text-cyan-300 font-bold";
+      if (diff === 'medium') document.getElementById('diffMed').className = "py-1.5 px-2 rounded-lg border-2 border-cyan-400 bg-cyan-950 text-xs font-orbitron text-cyan-300 font-bold";
+      if (diff === 'hard') document.getElementById('diffHard').className = "py-1.5 px-2 rounded-lg border-2 border-pink-400 bg-pink-950 text-xs font-orbitron text-pink-300 font-bold";
+    }
+
+    function selectRange(rangeStr) {
+      playSound('select');
+      myNumberRange = rangeStr;
+      const btn1 = document.getElementById('rangeSet1');
+      const btn2 = document.getElementById('rangeSet2');
+
+      if (rangeStr === '1-9') {
+        setupPalette = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+        btn1.className = "py-2 px-3 rounded-xl border-2 border-cyan-400 bg-cyan-950/60 text-cyan-300 font-orbitron text-xs font-bold shadow-md";
+        btn2.className = "py-2 px-3 rounded-xl border border-slate-700 bg-slate-800/50 text-slate-400 font-orbitron text-xs font-bold shadow-md hover:border-purple-400";
+      } else {
+        setupPalette = [11, 12, 13, 14, 15, 16, 17, 18, 19];
+        btn2.className = "py-2 px-3 rounded-xl border-2 border-cyan-400 bg-cyan-950/60 text-cyan-300 font-orbitron text-xs font-bold shadow-md";
+        btn1.className = "py-2 px-3 rounded-xl border border-slate-700 bg-slate-800/50 text-slate-400 font-orbitron text-xs font-bold shadow-md hover:border-purple-400";
+      }
+
+      myGrid = Array(9).fill(null);
+      selectedPaletteNum = null;
+      renderSetupBoard();
+      renderPalette();
+      checkLockBtnState();
+    }
+
+    /* ====================================================================
+       PEERJS ONLINE P2P HANDLERS
+       ==================================================================== */
+    function initPeerJS() {
+      updateStatus('Connecting to Peer Server...', 'bg-yellow-400');
+      if (peer) { try { peer.destroy(); } catch(e){} }
+
+      const autoId = 'GALAXY-' + Math.floor(1000 + Math.random() * 9000);
+      try {
+        peer = new Peer(autoId, {
+          debug: 1,
+          config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+        });
+
+        peer.on('open', (id) => {
+          updateStatus('Online Transceiver Ready!', 'bg-green-400');
+          document.getElementById('myPeerId').innerText = id;
+        });
+
+        peer.on('connection', (c) => {
+          conn = c;
+          myRole = 'p1';
+          setupConnection();
+          showModal('LINK ESTABLISHED', 'Player 2 connected! Prepare grid matrix setup.', '🚀');
+          launchCustomizationPhase();
+        });
+
+        peer.on('error', () => {
+          updateStatus('Online Error - Local Modes Ready', 'bg-yellow-500');
+        });
+      } catch(e) {
+        updateStatus('P2P Offline - Local Modes Active', 'bg-purple-400');
+      }
+    }
+
+    function createRoom() {
+      playSound('select');
+      myRole = 'p1';
+      document.getElementById('hostCodeDisplay').classList.remove('hidden');
+    }
+
+    function copyPeerId() {
+      const id = document.getElementById('myPeerId').innerText;
+      if (id && id !== 'GENERATING...') {
+        document.execCommand('copy');
+        playSound('select');
+        showModal('COPIED', 'Room ID copied to clipboard!', '📋');
+      }
+    }
+
+    function joinRoom() {
+      playSound('select');
+      const input = document.getElementById('joinIdInput').value.trim();
+      if (!input) return showModal('REQUIRED', 'Please enter a valid Host Room ID.', '⚠️');
+
+      updateStatus('Connecting to Host...', 'bg-yellow-400');
+      myRole = 'p2';
+      conn = peer.connect(input);
+      setupConnection();
+    }
+
+    function setupConnection() {
+      conn.on('open', () => {
+        updateStatus('Connected to Opponent!', 'bg-green-400');
+        launchCustomizationPhase();
+      });
+
+      conn.on('data', (data) => {
+        handleIncomingData(data);
+      });
+    }
+
+    /* ====================================================================
+       GRID MATRIX CUSTOMIZATION PHASE
+       ==================================================================== */
+    function launchCustomizationPhase() {
+      playSound('select');
+      document.getElementById('lobbyArea').classList.add('hidden');
+      document.getElementById('customizationArea').classList.remove('hidden');
+
+      if (gameMode === 'pass') {
+        document.getElementById('customTitle').innerText = passPlaySetupStep === 1 
+          ? "CONFIG MATRIX BOARD (PLAYER 1)" 
+          : "CONFIG MATRIX BOARD (PLAYER 2)";
+      } else if (gameMode === 'ai') {
+        document.getElementById('customTitle').innerText = "CONFIG YOUR TARGET MATRIX BOARD";
+      } else {
+        document.getElementById('customTitle').innerText = `CONFIG MATRIX BOARD (${myRole === 'p1' ? 'PLAYER 1' : 'PLAYER 2'})`;
+      }
+
+      renderSetupBoard();
+      renderPalette();
+    }
+
+    function renderSetupBoard() {
+      const gridEl = document.getElementById('setupGrid');
+      gridEl.innerHTML = '';
+
+      myGrid.forEach((val, idx) => {
+        const slot = document.createElement('button');
+        slot.className = `aspect-square bg-slate-950/90 border-2 ${
+          val !== null 
+            ? 'border-purple-400 bg-purple-950/50 text-cyan-300 glow-purple scale-95' 
+            : 'border-slate-800 text-slate-600'
+        } rounded-xl font-orbitron font-bold text-xl flex items-center justify-center transition-all hover:border-cyan-400`;
+        slot.innerText = val !== null ? val : (idx + 1);
+        slot.onclick = () => onSetupSlotClick(idx);
+        gridEl.appendChild(slot);
+      });
+    }
+
+    function renderPalette() {
+      const palEl = document.getElementById('paletteContainer');
+      palEl.innerHTML = '';
+
+      setupPalette.forEach((num) => {
+        const isUsed = myGrid.includes(num);
+        const isSelected = selectedPaletteNum === num;
+
+        const btn = document.createElement('button');
+        btn.className = `py-1.5 px-3 rounded-lg font-orbitron font-bold text-xs border ${
+          isUsed 
+            ? 'opacity-25 border-slate-800 bg-slate-900 text-slate-600 cursor-not-allowed' 
+            : isSelected 
+            ? 'border-cyan-400 bg-cyan-950 text-cyan-300 glow-cyan scale-105' 
+            : 'border-purple-500/40 bg-slate-900 text-purple-200 hover:border-cyan-400'
+        } transition-all`;
+
+        btn.innerText = num;
+        btn.disabled = isUsed;
+        btn.onclick = () => {
+          playSound('select');
+          selectedPaletteNum = isSelected ? null : num;
+          renderPalette();
+        };
+        palEl.appendChild(btn);
+      });
+    }
+
+    function autoFillGrid() {
+      playSound('select');
+      const shuffled = [...setupPalette].sort(() => Math.random() - 0.5);
+      myGrid = shuffled;
+      selectedPaletteNum = null;
+      renderSetupBoard();
+      renderPalette();
+      checkLockBtnState();
+    }
+
+    function onSetupSlotClick(index) {
+      playSound('select');
+      if (selectedPaletteNum !== null) {
+        const existingIdx = myGrid.indexOf(selectedPaletteNum);
+        if (existingIdx !== -1) myGrid[existingIdx] = null;
+
+        myGrid[index] = selectedPaletteNum;
+        selectedPaletteNum = null;
+      } else {
+        myGrid[index] = null;
+      }
+
+      renderSetupBoard();
+      renderPalette();
+      checkLockBtnState();
+    }
+
+    function checkLockBtnState() {
+      const btn = document.getElementById('lockGridBtn');
+      const isComplete = myGrid.every(v => v !== null);
+
+      if (isComplete) {
+        btn.disabled = false;
+        btn.className = "w-full mt-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-orbitron font-bold text-xs sm:text-sm rounded-xl border border-pink-400 shadow-lg glow-pink cursor-pointer transition-all active:scale-95";
+        btn.innerText = "LOCK IN MATRIX LAYOUT 🚀";
+      } else {
+        btn.disabled = true;
+        btn.className = "w-full mt-4 py-3 bg-slate-800 text-slate-500 font-orbitron font-bold text-xs sm:text-sm rounded-xl border border-slate-700 cursor-not-allowed transition-all";
+        btn.innerText = `FILL ALL 9 SLOTS (${myGrid.filter(v => v !== null).length}/9)`;
+      }
+    }
+
+    function lockInGrid() {
+      playSound('select');
+
+      if (gameMode === 'ai') {
+        // AI random grid creation
+        oppGrid = [...setupPalette].sort(() => Math.random() - 0.5);
+        myGridLocked = true;
+        opponentGridLocked = true;
+      } else if (gameMode === 'pass') {
+        if (passPlaySetupStep === 1) {
+          oppGrid = [...myGrid]; // Store P1 grid in oppGrid temporarily
+          myGrid = Array(9).fill(null);
+          passPlaySetupStep = 2;
+          showModal('PASS THE DEVICE', 'Player 1 matrix locked! Pass device to Player 2 to set up Grid 2.', '📱');
+          launchCustomizationPhase();
+          return;
+        } else {
+          const tempP1Grid = [...oppGrid];
+          oppGrid = [...myGrid]; // P2 grid
+          myGrid = tempP1Grid;   // P1 grid
+          myGridLocked = true;
+          opponentGridLocked = true;
+        }
+      } else {
+        myGridLocked = true;
+        if (conn && conn.open) conn.send({ type: 'GRID_LOCKED', grid: myGrid });
+      }
+
+      document.getElementById('customizationArea').classList.add('hidden');
+      document.getElementById('gameArea').classList.remove('hidden');
+
+      if (opponentGridLocked || gameMode !== 'p2p') {
+        startActualGameplay();
+      } else {
+        updateStatus('Waiting for opponent to lock grid...', 'bg-yellow-400');
+        document.getElementById('turnText').innerText = "WAITING FOR OPPONENT GRID...";
+      }
+    }
+
+    /* ====================================================================
+       MAIN GAMEPLAY & TURN CONTROL
+       ==================================================================== */
+    function startActualGameplay() {
+      activePlayer = 'p1';
+      updateStatus('Target Hack Duel Active!', 'bg-green-400');
+
+      if (myRole === 'p1' || gameMode !== 'p2p') {
+        generateChoiceTiles();
+      }
+
+      updateTurnDisplay();
+      renderAllGrids();
+      renderChoiceTiles();
+    }
+
+    function generateChoiceTiles() {
+      choiceTiles = [];
+      for (let i = 0; i < 5; i++) {
+        choiceTiles.push(Math.floor(Math.random() * 9) + 1);
+      }
+      if (conn && conn.open) {
+        conn.send({ type: 'SYNC_CHOICES', tiles: choiceTiles });
+      }
+    }
+
+    function updateTurnDisplay() {
+      const hud = document.getElementById('turnHUD');
+      const text = document.getElementById('turnText');
+      const dot = document.getElementById('turnDot');
+      const submitBtn = document.getElementById('submitEqBtn');
+      const gridTitle = document.getElementById('gridOwnerTitle');
+
+      const isMyTurn = (gameMode === 'pass') || (gameMode === 'ai' && activePlayer === 'p1') || (gameMode === 'p2p' && activePlayer === myRole);
+
+      if (activePlayer === 'p1') {
+        text.innerText = gameMode === 'pass' ? "PLAYER 1'S TURN" : (isMyTurn ? "YOUR TURN (PLAYER 1)" : "OPPONENT'S TURN");
+        hud.className = "w-full cyber-panel rounded-2xl p-3 text-center glow-pink flex items-center justify-between border border-pink-500/60";
+        dot.className = "w-3 h-3 rounded-full bg-pink-400 animate-ping";
+      } else {
+        text.innerText = gameMode === 'pass' ? "PLAYER 2'S TURN" : (gameMode === 'ai' ? "CYBER AI THINKING..." : "OPPONENT'S TURN");
+        hud.className = "w-full cyber-panel rounded-2xl p-3 text-center glow-green flex items-center justify-between border border-green-500/60";
+        dot.className = "w-3 h-3 rounded-full bg-green-400 animate-ping";
+      }
+
+      if (gameMode === 'pass') {
+        gridTitle.innerText = activePlayer === 'p1' ? "PLAYER 1 MATRIX" : "PLAYER 2 MATRIX";
+      } else {
+        gridTitle.innerText = "YOUR TARGET MATRIX";
+      }
+
+      if (isMyTurn) {
+        submitBtn.disabled = false;
+        submitBtn.className = "w-full py-3 bg-gradient-to-r from-cyan-500 via-purple-600 to-pink-500 hover:from-cyan-400 hover:to-pink-400 text-white font-orbitron font-black text-xs sm:text-sm rounded-xl shadow-lg transform active:scale-95 transition-all glow-cyan cursor-pointer";
+      } else {
+        submitBtn.disabled = true;
+        submitBtn.className = "w-full py-3 bg-slate-800 text-slate-500 font-orbitron font-black text-xs sm:text-sm rounded-xl border border-slate-700 cursor-not-allowed opacity-60";
+      }
+
+      // Handle AI Turn trigger
+      if (gameMode === 'ai' && activePlayer === 'p2') {
+        setTimeout(executeAiTurn, 1200);
+      }
+    }
+
+    function renderChoiceTiles() {
+      const container = document.getElementById('choiceTilesBank');
+      container.innerHTML = '';
+
+      choiceTiles.forEach((num, idx) => {
+        const isSelected = selectedChoiceIndices.includes(idx);
+        const tile = document.createElement('button');
+        tile.className = `choice-tile w-11 h-11 sm:w-12 sm:h-12 rounded-xl font-orbitron font-black text-lg border-2 flex items-center justify-center ${
+          isSelected 
+            ? 'selected border-yellow-400 text-yellow-300' 
+            : 'bg-slate-950/90 border-purple-500/40 text-cyan-300 hover:border-cyan-400'
+        }`;
+        tile.innerText = num;
+        tile.onclick = () => selectChoiceTile(idx);
+        container.appendChild(tile);
+      });
+
+      updateEquationPreview();
+    }
+
+    function selectChoiceTile(idx) {
+      playSound('select');
+      if (selectedChoiceIndices.includes(idx)) {
+        selectedChoiceIndices = selectedChoiceIndices.filter(i => i !== idx);
+      } else {
+        if (selectedChoiceIndices.length < 2) {
+          selectedChoiceIndices.push(idx);
+        } else {
+          selectedChoiceIndices = [selectedChoiceIndices[1], idx];
+        }
+      }
+      renderChoiceTiles();
+    }
+
+    function setOperator(op) {
+      playSound('select');
+      currentOp = op;
+
+      ['opAdd', 'opSub', 'opMul', 'opDiv'].forEach(id => {
+        document.getElementById(id).className = "w-10 h-10 bg-purple-900/30 text-purple-300 border border-slate-700 rounded-xl font-orbitron font-black text-lg flex items-center justify-center shadow hover:border-purple-400 active:scale-95 transition-all";
+      });
+
+      if (op === '+') document.getElementById('opAdd').className = "w-10 h-10 bg-purple-900/80 border-2 border-pink-400 text-pink-200 rounded-xl font-orbitron font-black text-lg flex items-center justify-center shadow active:scale-95 transition-all glow-pink";
+      if (op === '-') document.getElementById('opSub').className = "w-10 h-10 bg-purple-900/80 border-2 border-pink-400 text-pink-200 rounded-xl font-orbitron font-black text-lg flex items-center justify-center shadow active:scale-95 transition-all glow-pink";
+      if (op === '×') document.getElementById('opMul').className = "w-10 h-10 bg-purple-900/80 border-2 border-pink-400 text-pink-200 rounded-xl font-orbitron font-black text-lg flex items-center justify-center shadow active:scale-95 transition-all glow-pink";
+      if (op === '÷') document.getElementById('opDiv').className = "w-10 h-10 bg-purple-900/80 border-2 border-pink-400 text-pink-200 rounded-xl font-orbitron font-black text-lg flex items-center justify-center shadow active:scale-95 transition-all glow-pink";
+
+      updateEquationPreview();
+    }
+
+    function calculateResult(v1, v2, op) {
+      if (op === '+') return v1 + v2;
+      if (op === '-') return Math.abs(v1 - v2);
+      if (op === '×') return v1 * v2;
+      if (op === '÷') return v2 !== 0 && v1 % v2 === 0 ? v1 / v2 : Math.floor(v1 / v2);
+      return 0;
+    }
+
+    function updateEquationPreview() {
+      const v1 = selectedChoiceIndices.length > 0 ? choiceTiles[selectedChoiceIndices[0]] : '?';
+      const v2 = selectedChoiceIndices.length > 1 ? choiceTiles[selectedChoiceIndices[1]] : '?';
+
+      document.getElementById('eqVal1').innerText = v1;
+      document.getElementById('eqVal2').innerText = v2;
+      document.getElementById('eqOp').innerText = currentOp;
+
+      if (v1 !== '?' && v2 !== '?') {
+        const res = calculateResult(v1, v2, currentOp);
+        document.getElementById('eqResult').innerText = res;
+      } else {
+        document.getElementById('eqResult').innerText = '?';
+      }
+    }
+
+    function renderAllGrids() {
+      let mainGridNums = myGrid;
+      let mainClaimed = myClaimed;
+      let miniGridNums = oppGrid;
+      let miniClaimed = oppClaimed;
+
+      if (gameMode === 'pass' && activePlayer === 'p2') {
+        mainGridNums = oppGrid;
+        mainClaimed = oppClaimed;
+        miniGridNums = myGrid;
+        miniClaimed = myClaimed;
+      }
+
+      // Render Main Board Grid
+      const gameGridEl = document.getElementById('gameGrid');
+      gameGridEl.innerHTML = '';
+      const isP2View = (gameMode === 'pass' && activePlayer === 'p2') || (gameMode === 'p2p' && myRole === 'p2');
+
+      mainGridNums.forEach((num, idx) => {
+        const isClaimed = mainClaimed[idx];
+        const claimStyle = isP2View ? 'claimed-p2 text-white border-green-400' : 'claimed-p1 text-white border-pink-400';
+        const cellIcon = isP2View ? '⚡' : '🚀';
+
+        const cell = document.createElement('div');
+        cell.className = `grid-cell aspect-square rounded-2xl border-2 font-orbitron font-black text-2xl flex items-center justify-center ${
+          isClaimed 
+            ? claimStyle 
+            : 'bg-slate-900/90 text-slate-200 border-slate-800'
+        }`;
+        cell.innerText = isClaimed ? cellIcon : num;
+        gameGridEl.appendChild(cell);
+      });
+
+      // Render Opponent Mini Board Tracker
+      const miniGridEl = document.getElementById('oppMiniGrid');
+      miniGridEl.innerHTML = '';
+      miniGridNums.forEach((num, idx) => {
+        const isClaimed = miniClaimed[idx];
+        const cell = document.createElement('div');
+        cell.className = `aspect-square rounded-lg border font-orbitron font-bold text-xs flex items-center justify-center ${
+          isClaimed 
+            ? 'bg-emerald-500/80 border-emerald-400 text-white shadow-sm glow-green' 
+            : 'bg-slate-950/80 border-slate-800 text-slate-600'
+        }`;
+        cell.innerText = isClaimed ? '⚡' : '';
+        miniGridEl.appendChild(cell);
+      });
+
+      // Update counters
+      document.getElementById('myClaimCount').innerText = `${mainClaimed.filter(Boolean).length} / 9 HIT`;
+      document.getElementById('oppClaimCount').innerText = `${miniClaimed.filter(Boolean).length} / 9 HIT`;
+    }
+
+    /* ====================================================================
+       EQUATION SUBMISSION & DUAL LIGHTING LOGIC
+       ==================================================================== */
+    function submitEquation() {
+      if (selectedChoiceIndices.length !== 2) {
+        playSound('error');
+        return showModal('SELECT PIECES', 'Please select 2 choice numbers from the bank!', '🔢');
+      }
+
+      const v1 = choiceTiles[selectedChoiceIndices[0]];
+      const v2 = choiceTiles[selectedChoiceIndices[1]];
+      const targetResult = calculateResult(v1, v2, currentOp);
+
+      processMove(v1, v2, currentOp, targetResult);
+    }
+
+    function processMove(v1, v2, op, targetResult) {
+      let p1HitIndices = [];
+      let p2HitIndices = [];
+
+      if (myRole === 'p2') {
+        // Player 2 perspective: myGrid is P2, oppGrid is P1
+        myGrid.forEach((num, idx) => {
+          if (num === targetResult && !myClaimed[idx]) p2HitIndices.push(idx);
+        });
+        oppGrid.forEach((num, idx) => {
+          if (num === targetResult && !oppClaimed[idx]) p1HitIndices.push(idx);
+        });
+        p2HitIndices.forEach(idx => myClaimed[idx] = true);
+        p1HitIndices.forEach(idx => oppClaimed[idx] = true);
+      } else {
+        // Player 1 / AI / Pass&Play perspective: myGrid is P1, oppGrid is P2
+        myGrid.forEach((num, idx) => {
+          if (num === targetResult && !myClaimed[idx]) p1HitIndices.push(idx);
+        });
+        oppGrid.forEach((num, idx) => {
+          if (num === targetResult && !oppClaimed[idx]) p2HitIndices.push(idx);
+        });
+        p1HitIndices.forEach(idx => myClaimed[idx] = true);
+        p2HitIndices.forEach(idx => oppClaimed[idx] = true);
+      }
+
+      const hitP1 = p1HitIndices.length > 0;
+      const hitP2 = p2HitIndices.length > 0;
+
+      let msg = `Equation: ${v1} ${op} ${v2} = ${targetResult}\n`;
+      if (hitP1 && hitP2) {
+        playSound('success');
+        msg += "⚡ DUAL LIGHTING! Target hit on BOTH matrices!";
+      } else if (hitP1) {
+        playSound('success');
+        msg += `⚡ SUCCESS! Target number ${targetResult} lit up on Grid 1!`;
+      } else if (hitP2) {
+        playSound('success');
+        msg += `⚡ SUCCESS! Target number ${targetResult} lit up on Grid 2!`;
+      } else {
+        playSound('error');
+        msg += `⚠️ Target ${targetResult} not found on unlit matrix slots!`;
+      }
+
+      if (conn && conn.open) {
+        conn.send({
+          type: 'EXECUTE_MOVE',
+          v1, v2, op, result: targetResult,
+          p1Hits: p1HitIndices, p2Hits: p2HitIndices
+        });
+      }
+
+      renderAllGrids();
+
+      // Check Win
+      const p1Won = checkWin(myClaimed);
+      const p2Won = checkWin(oppClaimed);
+
+      if (p1Won || p2Won) {
+        playSound('win');
+        let winMsg = p1Won && p2Won ? "DOUBLE WARP VICTORY! Both matrices completed!" : (p1Won ? "PLAYER 1 WINS THE DUEL!" : "PLAYER 2 / CYBER AI WINS THE DUEL!");
+        showModal('🎉 DUEL VICTORY!', winMsg, '🏆');
+        if (conn && conn.open) conn.send({ type: 'GAME_OVER', winnerMsg: winMsg });
+        return;
+      }
+
+      showModal('TARGET HACK EXECUTED', msg, '⚡');
+
+      selectedChoiceIndices = [];
+      switchTurn();
+    }
+
+    function switchTurn() {
+      activePlayer = activePlayer === 'p1' ? 'p2' : 'p1';
+      generateChoiceTiles();
+      updateTurnDisplay();
+      renderAllGrids();
+      renderChoiceTiles();
+    }
+
+    /* CYBER AI BOT TURN LOGIC */
+    function executeAiTurn() {
+      if (activePlayer !== 'p2' || gameMode !== 'ai') return;
+
+      const ops = ['+', '-', '×'];
+      let bestMove = null;
+
+      // Scan all choice pairs
+      for (let i = 0; i < choiceTiles.length; i++) {
+        for (let j = i + 1; j < choiceTiles.length; j++) {
+          for (let op of ops) {
+            const res = calculateResult(choiceTiles[i], choiceTiles[j], op);
+            
+            // Check if res hits oppGrid (AI's grid)
+            const aiHit = oppGrid.some((num, idx) => num === res && !oppClaimed[idx]);
+            const p1Hit = myGrid.some((num, idx) => num === res && !myClaimed[idx]);
+
+            if (aiHit) {
+              bestMove = { i, j, op, res };
+              break;
+            } else if (p1Hit && aiDifficulty !== 'easy') {
+              bestMove = { i, j, op, res };
+            }
+          }
+        }
+      }
+
+      // Fallback random move
+      if (!bestMove) {
+        const i = 0, j = 1;
+        const op = ops[Math.floor(Math.random() * ops.length)];
+        const res = calculateResult(choiceTiles[i], choiceTiles[j], op);
+        bestMove = { i, j, op, res };
+      }
+
+      processMove(choiceTiles[bestMove.i], choiceTiles[bestMove.j], bestMove.op, bestMove.res);
+    }
+
+    function checkWin(claimedArr) {
+      const winLines = [
+        [0, 1, 2], [3, 4, 5], [6, 7, 8],
+        [0, 3, 6], [1, 4, 7], [2, 5, 8],
+        [0, 4, 8], [2, 4, 6]
+      ];
+      return winLines.some(line => line.every(idx => claimedArr[idx]));
+    }
+
+    function handleIncomingData(data) {
+      if (data.type === 'GRID_LOCKED') {
+        opponentGridLocked = true;
+        oppGrid = data.grid;
+        if (myGridLocked) startActualGameplay();
+      } else if (data.type === 'SYNC_CHOICES') {
+        choiceTiles = data.tiles;
+        renderChoiceTiles();
+      } else if (data.type === 'EXECUTE_MOVE') {
+        if (myRole === 'p2') {
+          data.p1Hits.forEach(idx => oppClaimed[idx] = true);
+          data.p2Hits.forEach(idx => myClaimed[idx] = true);
+        } else {
+          data.p1Hits.forEach(idx => myClaimed[idx] = true);
+          data.p2Hits.forEach(idx => oppClaimed[idx] = true);
+        }
+        renderAllGrids();
+        showModal('OPPONENT HACKED', `Opponent formed equation: ${data.v1} ${data.op} ${data.v2} = ${data.result}`, '🚀');
+        activePlayer = myRole;
+        updateTurnDisplay();
+      } else if (data.type === 'GAME_OVER') {
+        playSound('win');
+        showModal('GAME OVER', data.winnerMsg || 'Duel Complete!', '🌌');
+      }
+    }
+
+    /* MODAL HELPER */
+    function showModal(title, text, icon = '🚀') {
+      document.getElementById('modalTitle').innerText = title;
+      document.getElementById('modalBody').innerText = text;
+      document.getElementById('modalIcon').innerText = icon;
+      document.getElementById('gameModal').classList.remove('hidden');
+    }
+
+    function closeModal() {
+      playSound('select');
+      document.getElementById('gameModal').classList.add('hidden');
+    }
+  </script>
+</body>
+</html>
